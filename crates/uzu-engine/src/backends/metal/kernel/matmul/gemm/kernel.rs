@@ -10,7 +10,8 @@ use super::{
 use crate::{
     backends::{
         common::{
-            Backend, BufferMut, BufferRef, CommandBufferEncoding,
+            Backend, BufferMut, BufferRef, CommandBufferEncoding, CommandBufferExecutable, CommandBufferPending,
+            Context,
             gpu_types::{
                 GemmParams,
                 gemm::{GemmAPrologueKind, GemmAlignment, GemmBPrologueKind, GemmDTransform},
@@ -25,7 +26,7 @@ use crate::{
             command_buffer::MetalCommandBufferEncoding,
             context::MetalContext,
             error::MetalError,
-            kernel::{GemmMetalKernel, GemmSplitKReduceMetalKernel},
+            kernel::{GemmMetalKernel, GemmSplitKReduceMetalKernel, GemmTileCodesMetalKernel},
         },
     },
     data_type::DataType,
@@ -85,10 +86,36 @@ impl GemmKernel {
                     specialization.output_transform,
                     specialization.alignment,
                     specialization.signed_codes,
+                    specialization.tiled_codes,
                 )?;
                 Ok(entry.insert(kernel))
             },
         }
+    }
+
+    pub fn tile_codes(
+        codes: &<Metal as Backend>::GlobalBuffer,
+        rows: u32,
+        k: u32,
+        bits: u32,
+        context: &MetalContext,
+    ) -> Result<<Metal as Backend>::GlobalBuffer, MetalError> {
+        let row_blocks = rows.div_ceil(32);
+        let chunks = k / 32;
+        let lane_bytes = bits as usize * 4;
+        let mut tiled = context.create_buffer(row_blocks as usize * chunks as usize * 32 * lane_bytes)?;
+        let mut command_buffer = context.create_command_buffer(Some("tile weight codes"), None)?;
+        GemmTileCodesMetalKernel::new(context, bits)?.encode(
+            codes,
+            &mut tiled,
+            rows,
+            k * bits / 8,
+            row_blocks,
+            chunks,
+            &mut command_buffer,
+        );
+        command_buffer.end_encoding().submit().wait_until_completed()?;
+        Ok(tiled)
     }
 
     fn get_or_create_split_k_reduce(
@@ -235,6 +262,13 @@ impl GemmKernel {
             };
 
         let use_mxu = plan.engine == GemmEngine::Mxu;
+        if shape.tiled_codes && (!use_mxu || shape.a_full_precision) {
+            return Err(MatmulError::IncompatibleA {
+                path: "Gemm",
+                reason: "tiled weight codes require int8 activations on the MXU",
+            }
+            .into());
+        }
 
         let is_quant = quantized.is_some();
         if !is_quant && !matches!(&a, MatmulA::FullPrecision { .. }) {

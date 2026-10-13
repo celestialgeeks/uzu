@@ -50,4 +50,13 @@ pub trait MatmulKernel: Sized + Send + Sync {
     ) -> ActivationFormat {
         ActivationFormat::Bf16
     }
+
+    fn tile_codes(
+        &self,
+        _a8_shape: &MatmulShape,
+        _codes: &<Self::Backend as Backend>::GlobalBuffer,
+        _context: &<Self::Backend as Backend>::Context,
+    ) -> Result<Option<<Self::Backend as Backend>::GlobalBuffer>, <Self::Backend as Backend>::Error> {
+        Ok(None)
+    }
 }
