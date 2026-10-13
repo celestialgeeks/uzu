@@ -54,6 +54,7 @@ it("ignores malformed tool overrides and inherits current defaults", async () =>
       modelChatNamingEnabled: "false",
       dateTimeToolEnabled: null,
       chartToolEnabled: "false",
+      webSearchToolEnabled: 1,
     },
   });
   await useModelParamsStore.getState().load();
@@ -61,6 +62,7 @@ it("ignores malformed tool overrides and inherits current defaults", async () =>
     modelChatNamingEnabled: false,
     dateTimeToolEnabled: true,
     chartToolEnabled: true,
+    webSearchToolEnabled: true,
   });
 });
 
@@ -70,6 +72,7 @@ it("persists tool overrides and removes them when parameters are reset", async (
     modelChatNamingEnabled: true,
     dateTimeToolEnabled: false,
     chartToolEnabled: false,
+    webSearchToolEnabled: false,
   };
   useModelParamsStore.getState().setParams("model", params);
   await vi.runAllTimersAsync();
@@ -82,6 +85,7 @@ it("persists tool overrides and removes them when parameters are reset", async (
     modelChatNamingEnabled: false,
     dateTimeToolEnabled: true,
     chartToolEnabled: true,
+    webSearchToolEnabled: true,
   });
 });
 
@@ -94,6 +98,8 @@ it("marks parameters modified only when their effective tools differ from defaul
   expect(isCustomParams({ sampling, dateTimeToolEnabled: false }, true)).toBe(true);
   expect(isCustomParams({ sampling, chartToolEnabled: true }, true)).toBe(false);
   expect(isCustomParams({ sampling, chartToolEnabled: false }, true)).toBe(true);
+  expect(isCustomParams({ sampling, webSearchToolEnabled: true }, true)).toBe(false);
+  expect(isCustomParams({ sampling, webSearchToolEnabled: false }, true)).toBe(true);
 });
 
 it.each([
@@ -120,6 +126,7 @@ it.each([
       modelChatNamingEnabled: expected,
       dateTimeToolEnabled: expected,
       chartToolEnabled: expected,
+      webSearchToolEnabled: expected,
     }),
   );
   expect(isCustomParams({ sampling: { type: "Default" } }, true, paramSize)).toBe(false);
@@ -136,11 +143,13 @@ it("preserves explicit opt-ins on small models while respecting the global namin
     modelChatNamingEnabled: true,
     dateTimeToolEnabled: true,
     chartToolEnabled: true,
+    webSearchToolEnabled: false,
   });
   expect(resolveModelTools(params, false, 1_000_000_000)).toEqual({
     modelChatNamingEnabled: false,
     dateTimeToolEnabled: true,
     chartToolEnabled: true,
+    webSearchToolEnabled: false,
   });
   expect(isCustomParams(params, true, 1_000_000_000)).toBe(true);
   expect(isCustomParams({ sampling: params.sampling, modelChatNamingEnabled: true }, false, 1_000_000_000)).toBe(false);

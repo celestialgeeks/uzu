@@ -310,6 +310,81 @@ it("keeps interrupted tool calls visible without claiming they are still running
   expect(view.container.textContent).not.toContain("Checking the date and time...");
 });
 
+const renderTranscript = (transcript: TranscriptItem[]) => {
+  useChatStore.getState().updateMessage(message.id, { output: { transcript } });
+  return render(<Message {...message} chatId="chat" />);
+};
+
+const linksOf = (container: HTMLElement) =>
+  Array.from(container.querySelectorAll("a"), (anchor) => [anchor.textContent, anchor.getAttribute("href")]);
+
+it("links search results whose urls are http(s) and keeps every other scheme as text", () => {
+  const { container } = renderTranscript([
+    {
+      type: "search",
+      query: "mirai inference engine",
+      results: [
+        { title: "Docs", url: "https://docs.trymirai.com/" },
+        { title: "Plain http", url: "http://example.com/page" },
+        { title: "Xss", url: "javascript:alert(1)" },
+        { title: "Fake scheme", url: "data:text/html,<script>alert(1)</script>" },
+        { title: "Relative", url: "//example.com" },
+      ],
+      failed: false,
+    },
+  ]);
+
+  expect(container.textContent).toContain("Searched the web for “mirai inference engine”");
+  expect(linksOf(container)).toEqual([
+    ["Docs", "https://docs.trymirai.com/"],
+    ["Plain http", "http://example.com/page"],
+  ]);
+  expect(container.textContent).toContain("Xss");
+  expect(container.textContent).toContain("Relative");
+  // Every anchor is inert to the page that rendered it.
+  Array.from(container.querySelectorAll("a")).forEach((anchor) => {
+    expect(anchor.getAttribute("target")).toBe("_blank");
+    expect(anchor.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+});
+
+it("shows search failures and empty result sets without a link list", () => {
+  const failed = renderTranscript([{ type: "search", query: "nothing", results: [], failed: true }]);
+  expect(failed.container.textContent).toContain("Couldn't search for “nothing”");
+  expect(failed.container.querySelectorAll("a")).toHaveLength(0);
+
+  cleanup();
+  const empty = renderTranscript([{ type: "search", query: "cold", results: [], failed: false }]);
+  expect(empty.container.textContent).toContain("No results.");
+});
+
+it("labels a fetched page by hostname and marks truncated reads", () => {
+  const { container } = renderTranscript([
+    { type: "fetch", url: "https://docs.trymirai.com/search", truncated: true, failed: false },
+  ]);
+  expect(container.textContent).toContain("Read docs.trymirai.com");
+  expect(container.textContent).toContain("truncated");
+  expect(linksOf(container)).toEqual([["Open", "https://docs.trymirai.com/search"]]);
+
+  cleanup();
+  const unsafe = renderTranscript([{ type: "fetch", url: "javascript:alert(1)", truncated: false, failed: false }]);
+  expect(unsafe.container.querySelectorAll("a")).toHaveLength(0);
+
+  cleanup();
+  const failed = renderTranscript([
+    { type: "fetch", url: "https://timeout.test/page", truncated: false, failed: true },
+  ]);
+  expect(failed.container.textContent).toContain("Couldn't read timeout.test");
+  expect(failed.container.querySelectorAll("a")).toHaveLength(0);
+});
+
+it("ignores a transcript item type it does not know instead of crashing the reply", () => {
+  const unknown = { type: "citation", url: "https://surprise.test" } as unknown as TranscriptItem;
+  const { container } = renderTranscript([unknown, { type: "text", text: "Still renders the answer" }]);
+  expect(container.textContent).toContain("Still renders the answer");
+  expect(container.querySelectorAll("a")).toHaveLength(0);
+});
+
 it("does not claim a failed tool call succeeded", () => {
   useChatStore.getState().updateMessage(message.id, {
     output: { transcript: [{ type: "toolCall", name: "set_chat_name", called: true, failed: true }] },

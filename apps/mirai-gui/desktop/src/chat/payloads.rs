@@ -23,6 +23,8 @@ pub struct RunStreamPayload {
     pub date_time_tool_enabled: Option<bool>,
     #[serde(default)]
     pub chart_tool_enabled: Option<bool>,
+    #[serde(default)]
+    pub web_search_tool_enabled: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -173,6 +175,31 @@ pub enum TranscriptItem {
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         failed: bool,
     },
+    /// A finished `web_search` call, rendered as a source list rather than raw JSON.
+    /// `query` comes from the call arguments because the payload itself does not echo it.
+    Search {
+        query: String,
+        results: Vec<SearchSource>,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        failed: bool,
+    },
+    /// A finished `fetch_url` call. `url` is the final URL after redirects.
+    Fetch {
+        url: String,
+        truncated: bool,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        failed: bool,
+    },
+}
+
+/// One clickable source in a [`TranscriptItem::Search`]. URLs are already
+/// restricted to `http`/`https` by the web layer, and the client re-checks
+/// before turning one into a link.
+#[derive(Debug, Serialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchSource {
+    pub title: String,
+    pub url: String,
 }
 
 pub(super) fn map_reply_stats(reply: Option<&ChatReply>) -> SessionOutputStats {
@@ -272,20 +299,69 @@ mod tests {
         assert_eq!(defaults.model_chat_naming_enabled, None);
         assert_eq!(defaults.date_time_tool_enabled, None);
         assert_eq!(defaults.chart_tool_enabled, None);
+        assert_eq!(defaults.web_search_tool_enabled, None);
         for enabled in [true, false] {
             let naming = payload(serde_json::json!({ "modelChatNamingEnabled": enabled }));
             assert_eq!(naming.model_chat_naming_enabled, Some(enabled));
             assert_eq!(naming.date_time_tool_enabled, None);
             assert_eq!(naming.chart_tool_enabled, None);
+            assert_eq!(naming.web_search_tool_enabled, None);
             let date = payload(serde_json::json!({ "dateTimeToolEnabled": enabled }));
             assert_eq!(date.model_chat_naming_enabled, None);
             assert_eq!(date.date_time_tool_enabled, Some(enabled));
             assert_eq!(date.chart_tool_enabled, None);
+            assert_eq!(date.web_search_tool_enabled, None);
             let chart = payload(serde_json::json!({ "chartToolEnabled": enabled }));
             assert_eq!(chart.model_chat_naming_enabled, None);
             assert_eq!(chart.date_time_tool_enabled, None);
             assert_eq!(chart.chart_tool_enabled, Some(enabled));
+            assert_eq!(chart.web_search_tool_enabled, None);
+            let web = payload(serde_json::json!({ "webSearchToolEnabled": enabled }));
+            assert_eq!(web.model_chat_naming_enabled, None);
+            assert_eq!(web.date_time_tool_enabled, None);
+            assert_eq!(web.chart_tool_enabled, None);
+            assert_eq!(web.web_search_tool_enabled, Some(enabled));
         }
+    }
+
+    #[test]
+    fn web_tool_cards_serialize_as_the_client_contract() {
+        let search = TranscriptItem::Search {
+            query: "rust 1.101 release notes".into(),
+            results: vec![SearchSource {
+                title: "Releases · rust-lang/rust".into(),
+                url: "https://github.com/rust-lang/rust/releases".into(),
+            }],
+            failed: false,
+        };
+        assert_eq!(
+            serde_json::to_value(&search).unwrap(),
+            serde_json::json!({
+                "type": "search",
+                "query": "rust 1.101 release notes",
+                "results": [{ "title": "Releases · rust-lang/rust", "url": "https://github.com/rust-lang/rust/releases" }],
+            }),
+            "a successful search must not carry a failed flag"
+        );
+        assert_eq!(
+            serde_json::to_value(TranscriptItem::Search {
+                query: "".into(),
+                results: vec![],
+                failed: true,
+            })
+            .unwrap(),
+            serde_json::json!({ "type": "search", "query": "", "results": [], "failed": true }),
+            "an empty result list still distinguishes failure from an unstarted call"
+        );
+        assert_eq!(
+            serde_json::to_value(TranscriptItem::Fetch {
+                url: "https://example.com/a".into(),
+                truncated: true,
+                failed: false,
+            })
+            .unwrap(),
+            serde_json::json!({ "type": "fetch", "url": "https://example.com/a", "truncated": true })
+        );
     }
 
     #[test]

@@ -14,6 +14,7 @@ export const resolveModelTools = (
     modelChatNamingEnabled: globalModelChatNamingEnabled && (params?.modelChatNamingEnabled ?? enabledByDefault),
     dateTimeToolEnabled: params?.dateTimeToolEnabled ?? enabledByDefault,
     chartToolEnabled: params?.chartToolEnabled ?? enabledByDefault,
+    webSearchToolEnabled: params?.webSearchToolEnabled ?? enabledByDefault,
   };
 };
 
@@ -30,22 +31,31 @@ export const isCustomParams = (
     samplingChanged ||
     tools.modelChatNamingEnabled !== defaults.modelChatNamingEnabled ||
     tools.dateTimeToolEnabled !== defaults.dateTimeToolEnabled ||
-    tools.chartToolEnabled !== defaults.chartToolEnabled
+    tools.chartToolEnabled !== defaults.chartToolEnabled ||
+    tools.webSearchToolEnabled !== defaults.webSearchToolEnabled
   );
 };
 
 // Settings written before reasoning levels stored a boolean.
 const migrateParams = (raw: unknown): ModelParams | null => {
   if (!raw || typeof raw !== "object") return null;
-  const { sampling, reasoningEffort, reasoningEnabled, modelChatNamingEnabled, dateTimeToolEnabled, chartToolEnabled } =
-    raw as {
-      sampling?: ModelParams["sampling"] | { type: "Argmax" };
-      reasoningEffort?: unknown;
-      reasoningEnabled?: unknown;
-      modelChatNamingEnabled?: unknown;
-      dateTimeToolEnabled?: unknown;
-      chartToolEnabled?: unknown;
-    };
+  const {
+    sampling,
+    reasoningEffort,
+    reasoningEnabled,
+    modelChatNamingEnabled,
+    dateTimeToolEnabled,
+    chartToolEnabled,
+    webSearchToolEnabled,
+  } = raw as {
+    sampling?: ModelParams["sampling"] | { type: "Argmax" };
+    reasoningEffort?: unknown;
+    reasoningEnabled?: unknown;
+    modelChatNamingEnabled?: unknown;
+    dateTimeToolEnabled?: unknown;
+    chartToolEnabled?: unknown;
+    webSearchToolEnabled?: unknown;
+  };
   if (!sampling) return null;
   const effort: ReasoningEffort | undefined = isReasoningEffort(reasoningEffort)
     ? reasoningEffort
@@ -60,6 +70,7 @@ const migrateParams = (raw: unknown): ModelParams | null => {
     ...(typeof modelChatNamingEnabled === "boolean" ? { modelChatNamingEnabled } : {}),
     ...(typeof dateTimeToolEnabled === "boolean" ? { dateTimeToolEnabled } : {}),
     ...(typeof chartToolEnabled === "boolean" ? { chartToolEnabled } : {}),
+    ...(typeof webSearchToolEnabled === "boolean" ? { webSearchToolEnabled } : {}),
   };
 };
 

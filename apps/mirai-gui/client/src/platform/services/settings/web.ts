@@ -1,5 +1,5 @@
 import type { ModelParams } from "@/types/sampling";
-import { DEFAULT_AUTO_EJECT_MINUTES, type SettingsService } from ".";
+import { DEFAULT_AUTO_EJECT_MINUTES, DEFAULT_WEB_SEARCH_SETTINGS, type SettingsService } from ".";
 import { readJson, writeJson } from "../shared/browser-store";
 
 const SETTINGS_KEY = "mirai.web.settings";
@@ -38,4 +38,18 @@ export const webSettings: SettingsService = {
   setAutoEjectEnabled: async (enabled) => enabled,
   getAutoEjectMinutes: async () => DEFAULT_AUTO_EJECT_MINUTES,
   setAutoEjectMinutes: async () => true,
+
+  // Search runs in the desktop engine, and its API key never reaches browser
+  // storage. The tab is hidden by platformInfo.features.webSearch, so these only
+  // keep the service complete and the call sites safe.
+  getWebSearchSettings: async () => ({ ...DEFAULT_WEB_SEARCH_SETTINGS }),
+  setWebSearchSettings: async () => {},
+  testWebSearch: async () => ({
+    ok: false,
+    error: {
+      code: "unsupported",
+      message: "Web search runs in the Mirai desktop app.",
+      userActionRequired: false,
+    },
+  }),
 };

@@ -144,11 +144,12 @@ export const useSendChatMessage = (params: UseSendChatMessageParams) => {
               globalInstructions,
             });
 
-            const { modelChatNamingEnabled, dateTimeToolEnabled, chartToolEnabled } = resolveModelTools(
-              useModelParamsStore.getState().getParams(modelId),
-              await getPlatform().settings.getModelChatNamingEnabled(),
-              useModelsStore.getState().models.find((model) => model.repoId === modelId)?.paramSize,
-            );
+            const { modelChatNamingEnabled, dateTimeToolEnabled, chartToolEnabled, webSearchToolEnabled } =
+              resolveModelTools(
+                useModelParamsStore.getState().getParams(modelId),
+                await getPlatform().settings.getModelChatNamingEnabled(),
+                useModelsStore.getState().models.find((model) => model.repoId === modelId)?.paramSize,
+              );
             if (canceled()) return;
 
             if (!modelChatNamingEnabled) {
@@ -177,6 +178,7 @@ export const useSendChatMessage = (params: UseSendChatMessageParams) => {
               modelChatNamingEnabled,
               dateTimeToolEnabled,
               chartToolEnabled,
+              webSearchToolEnabled,
               messageId: placeholder.id,
               chatId,
               updateText: (id: string, updatedText: string) => {

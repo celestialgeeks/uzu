@@ -81,6 +81,36 @@ it("keeps ordered tool transcripts through saving and regeneration, including ma
   expect(messages[2]?.currentVersionIndex).toBe(1);
 });
 
+it("keeps web search and fetch transcripts through a serialize/parse round-trip", () => {
+  const transcript: TranscriptItem[] = [
+    {
+      type: "search",
+      query: "mirrorless cameras",
+      results: [{ title: "Guide", url: "https://a.test/guide" }],
+      failed: false,
+    },
+    { type: "fetch", url: "https://a.test/guide", truncated: true, failed: false },
+    { type: "search", query: "broken", results: [], failed: true },
+    { type: "fetch", url: "javascript:alert(1)", truncated: false, failed: true },
+    { type: "text", text: "Answer with sources" },
+  ];
+  const message = { ...chat.messages[1]!, text: "Answer with sources", output: { transcript } };
+  const parsed = extractMessageBlocks(serializeToMarkdown({ ...chat, messages: [message] })).map(parseMessage);
+
+  expect(parsed[0]?.output?.transcript).toEqual(transcript);
+});
+
+it("drops a transcript whose web search results are malformed", () => {
+  // Deliberately ill-formed (`title` is a number) to prove the parser rejects it.
+  const transcript = [
+    { type: "search", query: "q", results: [{ title: 1, url: "https://a.test" }], failed: false },
+  ] as unknown as TranscriptItem[];
+  const message = { ...chat.messages[1]!, text: "Answer", output: { transcript } };
+  const parsed = extractMessageBlocks(serializeToMarkdown({ ...chat, messages: [message] })).map(parseMessage);
+
+  expect(parsed[0]?.output?.transcript).toBeUndefined();
+});
+
 it("ignores malformed transcript metadata and retains the legacy body", () => {
   const markdown = serializeToMarkdown(chat).replace(
     "<!-- ID: a1 -->",

@@ -103,6 +103,13 @@ fn stream_error(error: ChatSessionError) -> AppError {
     }
 }
 
+/// Ceiling on automatic tool-call turns in one reply. `None` means unlimited in
+/// uzu, and a small local model that keeps calling `web_search` would re-prefill
+/// the whole conversation on every round (see trymirai/uzu#936), so the loop is
+/// bounded here rather than left to the model. Four rounds covers a search, a
+/// read, a refinement, and the answer.
+const MAX_TOOL_TURNS: u32 = 4;
+
 pub(super) async fn run_stream_inner(
     app: &AppHandle,
     state: &ChatState,
@@ -117,6 +124,7 @@ pub(super) async fn run_stream_inner(
         payload.model_chat_naming_enabled,
         payload.date_time_tool_enabled,
         payload.chart_tool_enabled,
+        payload.web_search_tool_enabled,
     )
     .await?;
     if state.cancel_requested(&payload.run_id) {
@@ -133,7 +141,9 @@ pub(super) async fn run_stream_inner(
     }
     let effort = support.effective(payload.reasoning_effort);
 
-    let reply_config = ChatReplyConfig::create().with_sampling_policy(sampling_policy(&payload.sampling_policy));
+    let reply_config = ChatReplyConfig::create()
+        .with_sampling_policy(sampling_policy(&payload.sampling_policy))
+        .with_tool_turn_limit(Some(MAX_TOOL_TURNS));
 
     let plan = state.plan_run(&payload.repo_id, &payload.messages, effort);
     crate::logger::info(
@@ -175,7 +185,10 @@ pub(super) async fn run_stream_inner(
         .map(|resident| {
             (
                 Some(resident.identifier.clone()),
-                resident.model_chat_naming_enabled || resident.date_time_tool_enabled || resident.chart_tool_enabled,
+                resident.model_chat_naming_enabled
+                    || resident.date_time_tool_enabled
+                    || resident.chart_tool_enabled
+                    || resident.web_search_tool_enabled,
             )
         })
         .unwrap_or_default();

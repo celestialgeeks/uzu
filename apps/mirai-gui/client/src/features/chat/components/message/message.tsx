@@ -9,6 +9,7 @@ import { useChatStore } from "@/stores/use-chat-store";
 import { CopyButton } from "@/components/ui/copy-button";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { ThinkingBlock } from "./thinking-block";
+import { FetchSourceCard, SearchSourceCard } from "./source-card";
 import { MessageVersionControls } from "./message-version-controls";
 import { ModelSelector } from "./model-selector";
 import { PerformanceDropdown } from "./performance-dropdown";
@@ -233,6 +234,10 @@ const AssistantMessage: React.FC<MessageProps> = ({
                     <ChartMessage chart={item.chart} />
                   </Suspense>
                 );
+              case "search":
+                return <SearchSourceCard key={key} query={item.query} results={item.results} failed={item.failed} />;
+              case "fetch":
+                return <FetchSourceCard key={key} url={item.url} truncated={item.truncated} failed={item.failed} />;
             }
           })
         ) : (

@@ -25,8 +25,9 @@ pub(super) async fn title_gen_inner(
     payload: &TitleGenPayload,
 ) -> AppResult<String> {
     let _run_guard = state.run_lock.lock().await;
+    // Title generation never reaches outside the machine: no web tools, no chart, no rename.
     let (session, support, _) =
-        ensure_session(app, state, &payload.repo_id, Some(false), Some(false), Some(false)).await?;
+        ensure_session(app, state, &payload.repo_id, Some(false), Some(false), Some(false), Some(false)).await?;
     if state.cancel_requested(TITLE_GEN_RUN_ID) {
         return Ok(String::new());
     }

@@ -10,6 +10,7 @@ export type LlmRunParams = {
   modelChatNamingEnabled?: boolean;
   dateTimeToolEnabled?: boolean;
   chartToolEnabled?: boolean;
+  webSearchToolEnabled?: boolean;
 };
 
 export type SessionOutputStats = {
@@ -31,11 +32,18 @@ export type SessionOutputStats = {
 };
 
 export type ParsedPatch = { response?: string; chainOfThought?: string };
+
+/** One hit from a web search. `url` is provider-supplied, so it is only ever
+ * rendered as a link after `safeHttpUrl` accepts it. */
+export type TranscriptSearchResult = { title: string; url: string };
+
 export type TranscriptItem =
   | { type: "thinking"; text: string; completed?: boolean }
   | { type: "text"; text: string }
   | { type: "chart"; chart: ChartSpec }
-  | { type: "toolCall"; name: string; called: boolean; failed?: boolean };
+  | { type: "toolCall"; name: string; called: boolean; failed?: boolean }
+  | { type: "search"; query: string; results: TranscriptSearchResult[]; failed: boolean }
+  | { type: "fetch"; url: string; truncated: boolean; failed: boolean };
 
 export type OutputShape = { text?: { parsed?: ParsedPatch; raw?: string }; transcript?: TranscriptItem[] };
 

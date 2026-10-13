@@ -1,4 +1,5 @@
 import type { SamplingDefaults } from "@/platform/services/chat";
+import { platformInfo } from "@/platform/platform-info";
 import { resolveModelTools, useModelParamsStore } from "@/stores/use-model-params-store";
 import { useModelsStore } from "@/stores/use-models-store";
 import { TEMPERATURE_MIN, type SamplingPolicyPayload } from "@/types/sampling";
@@ -90,6 +91,7 @@ export const ModelParamsControls = ({ repoId, samplingDefaults: modelDefaults }:
     samplingValue(stochastic, field) !== samplingValue(defaultStochastic, field);
   const dateTimeChanged = tools.dateTimeToolEnabled !== defaultTools.dateTimeToolEnabled;
   const chartChanged = tools.chartToolEnabled !== defaultTools.chartToolEnabled;
+  const webSearchChanged = tools.webSearchToolEnabled !== defaultTools.webSearchToolEnabled;
   const chatNamingChanged = tools.modelChatNamingEnabled !== defaultTools.modelChatNamingEnabled;
   // Seeds are only for explicitly enabling a filter; missing parameters stay disabled.
   const seed = {
@@ -145,7 +147,7 @@ export const ModelParamsControls = ({ repoId, samplingDefaults: modelDefaults }:
   };
 
   const onToolChange = (
-    field: "modelChatNamingEnabled" | "dateTimeToolEnabled" | "chartToolEnabled",
+    field: "modelChatNamingEnabled" | "dateTimeToolEnabled" | "chartToolEnabled" | "webSearchToolEnabled",
     enabled: boolean,
   ) => {
     const next = { ...params, sampling };
@@ -159,6 +161,7 @@ export const ModelParamsControls = ({ repoId, samplingDefaults: modelDefaults }:
     const next = { ...params, sampling };
     delete next.dateTimeToolEnabled;
     delete next.chartToolEnabled;
+    delete next.webSearchToolEnabled;
     if (globalModelChatNamingEnabled) delete next.modelChatNamingEnabled;
     setParams(repoId, next);
   };
@@ -282,7 +285,7 @@ export const ModelParamsControls = ({ repoId, samplingDefaults: modelDefaults }:
       <div className="flex flex-col gap-3 border-t border-cell-border pt-3">
         <SectionHeading
           name="Tools"
-          changed={dateTimeChanged || chartChanged || chatNamingChanged}
+          changed={dateTimeChanged || chartChanged || webSearchChanged || chatNamingChanged}
           onReset={resetTools}
         />
         {!supportsTools && (
@@ -314,6 +317,20 @@ export const ModelParamsControls = ({ repoId, samplingDefaults: modelDefaults }:
             onChange={(enabled) => onToolChange("chartToolEnabled", enabled)}
           />
         </div>
+        {platformInfo.features.webSearch && (
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-[13px] text-label-title">Web search{webSearchChanged && <ChangedMarker />}</span>
+              <p className="text-[12px] leading-relaxed text-label-muted">Search online and read the pages it finds.</p>
+            </div>
+            <Toggle
+              label="Web search"
+              checked={supportsTools && tools.webSearchToolEnabled}
+              disabled={!supportsTools}
+              onChange={(enabled) => onToolChange("webSearchToolEnabled", enabled)}
+            />
+          </div>
+        )}
         {globalModelChatNamingEnabled && (
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-col gap-1">

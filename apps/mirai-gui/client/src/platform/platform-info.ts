@@ -8,6 +8,9 @@ export const platformInfo = {
     localModelDownloads: __PLATFORM__ === "tauri",
     autoEject: __PLATFORM__ === "tauri",
     cliInstall: __PLATFORM__ === "tauri",
+    // Search and page fetching are Rust commands; the browser build has no
+    // provider clients, so Settings and the composer toggle both hide it.
+    webSearch: __PLATFORM__ === "tauri",
     // Overlay title bar with in-content macOS traffic lights: UI must reserve
     // space on the top-left so controls don't sit under the traffic lights.
     nativeTitleBar: __PLATFORM__ === "tauri",

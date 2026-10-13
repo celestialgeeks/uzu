@@ -13,6 +13,10 @@ const mocks = vi.hoisted(() => ({
   getSamplingDefaults: vi.fn<() => Promise<SamplingDefaults | null>>(),
 }));
 vi.mock("@/platform/platform-singleton", () => ({ getPlatform: () => ({ settings: mocks, chat: mocks }) }));
+// Web search is a desktop-only tool, and its row is the subject of these cases.
+vi.mock("@/platform/platform-info", () => ({
+  platformInfo: { isTauri: true, isWeb: false, features: { webSearch: true } },
+}));
 const samplingDefaults = {
   type: "Stochastic",
   temperature: 0.6,
@@ -61,6 +65,7 @@ it("displays the model's resolved defaults without creating a sampling override"
   expect(screen.getAllByRole("switch").map((element) => element.getAttribute("aria-label"))).toEqual([
     "Current date and time",
     "Draw charts",
+    "Web search",
     "Name chat using a tool",
   ]);
   expect(screen.getByRole("switch", { name: "Draw charts" }).getAttribute("aria-checked")).toBe("true");
@@ -295,7 +300,7 @@ it("defaults all tools off below 2B while allowing per-model opt-ins and reset",
   useModelsStore.setState({ models: [{ ...model, paramSize: 1_999_999_999 }] });
   render(<ModelParamsControls repoId="model" samplingDefaults={samplingDefaults} />);
   expect(screen.queryByRole("button", { name: "Reset tools to defaults" })).toBeNull();
-  const labels = ["Current date and time", "Draw charts", "Name chat using a tool"];
+  const labels = ["Current date and time", "Draw charts", "Web search", "Name chat using a tool"];
   for (const name of labels) {
     const toggle = screen.getByRole("switch", { name }) as HTMLButtonElement;
     expect(toggle.disabled).toBe(false);
@@ -307,6 +312,7 @@ it("defaults all tools off below 2B while allowing per-model opt-ins and reset",
     sampling: { type: "Default" },
     dateTimeToolEnabled: true,
     chartToolEnabled: true,
+    webSearchToolEnabled: true,
     modelChatNamingEnabled: true,
   });
   fireEvent.click(screen.getByRole("button", { name: "Reset tools to defaults" }));
@@ -332,6 +338,25 @@ it("keeps chart opt-outs per model and resets them to the inherited enabled defa
   expect(useModelParamsStore.getState().getParams("model").chartToolEnabled).toBeUndefined();
   expect(screen.getByRole("switch", { name: "Draw charts" }).getAttribute("aria-checked")).toBe("true");
   expect(within(screen.getByText("Draw charts")).queryByTitle("Changed from default")).toBeNull();
+});
+
+it("keeps web search opt-outs per model and resets them to the inherited enabled default", () => {
+  useModelsStore.setState({ models: [model, { ...model, repoId: "other" }] });
+  const { rerender } = render(<ModelParamsControls repoId="model" samplingDefaults={samplingDefaults} />);
+  fireEvent.click(screen.getByRole("switch", { name: "Web search" }));
+  expect(useModelParamsStore.getState().getParams("model").webSearchToolEnabled).toBe(false);
+  expect(within(screen.getByText("Web search")).getByTitle("Changed from default")).toBeTruthy();
+
+  rerender(<ModelParamsControls repoId="other" samplingDefaults={samplingDefaults} />);
+  expect(screen.getByRole("switch", { name: "Web search" }).getAttribute("aria-checked")).toBe("true");
+  expect(screen.queryByRole("button", { name: "Reset tools to defaults" })).toBeNull();
+
+  rerender(<ModelParamsControls repoId="model" samplingDefaults={samplingDefaults} />);
+  expect(screen.getByRole("switch", { name: "Web search" }).getAttribute("aria-checked")).toBe("false");
+  fireEvent.click(screen.getByRole("button", { name: "Reset tools to defaults" }));
+  expect(useModelParamsStore.getState().getParams("model").webSearchToolEnabled).toBeUndefined();
+  expect(screen.getByRole("switch", { name: "Web search" }).getAttribute("aria-checked")).toBe("true");
+  expect(within(screen.getByText("Web search")).queryByTitle("Changed from default")).toBeNull();
 });
 
 it("prefetches defaults while closed and opens ready controls without refetching or expanding them", async () => {

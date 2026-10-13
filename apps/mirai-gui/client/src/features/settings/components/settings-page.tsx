@@ -1,21 +1,26 @@
 import { Link, useSearch } from "@tanstack/react-router";
 import GeneralTab from "./general-tab";
 import AboutTab from "./about-tab";
+import WebSearchTab from "./web-search-tab";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
+import { platformInfo } from "@/platform/platform-info";
 import { twMerge } from "tailwind-merge";
 
-export type SettingsTab = "general" | "about";
+export type SettingsTab = "general" | "web-search" | "about";
 
 export function SettingsPage() {
   const { tab } = useSearch({ from: "/settings" });
   const sections: { key: SettingsTab; label: string }[] = [
     { key: "general", label: "General" },
+    // Search is a desktop command, so the browser build has nothing to configure.
+    ...(platformInfo.features.webSearch ? [{ key: "web-search" as const, label: "Web search" }] : []),
     { key: "about", label: "About" },
   ];
 
   const tabComponents: Record<SettingsTab, React.ReactNode> = {
     general: <GeneralTab />,
+    "web-search": <WebSearchTab />,
     about: <AboutTab />,
   };
 

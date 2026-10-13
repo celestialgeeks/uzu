@@ -22,6 +22,22 @@ const extractTranscript = (text: string): TranscriptItem[] | undefined => {
           );
         if (item.type === "text") return typeof item.text === "string";
         if (item.type === "chart") return isChartSpec(item.chart);
+        if (item.type === "search")
+          return (
+            typeof item.query === "string" &&
+            typeof item.failed === "boolean" &&
+            Array.isArray(item.results) &&
+            item.results.every(
+              (result: unknown) =>
+                !!result &&
+                typeof (result as { title?: unknown }).title === "string" &&
+                typeof (result as { url?: unknown }).url === "string",
+            )
+          );
+        if (item.type === "fetch")
+          return (
+            typeof item.url === "string" && typeof item.truncated === "boolean" && typeof item.failed === "boolean"
+          );
         return (
           item.type === "thinking" &&
           typeof item.text === "string" &&

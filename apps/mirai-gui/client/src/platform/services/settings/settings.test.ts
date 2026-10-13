@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { tauriSettings } from "./tauri";
 import { webSettings } from "./web";
 import { invoke } from "../shared/invoke";
+import { DEFAULT_WEB_SEARCH_SETTINGS } from ".";
 
 vi.mock("../shared/invoke", () => ({ invoke: vi.fn() }));
 
@@ -81,4 +82,92 @@ describe("auto-eject defaults", () => {
       expect(await tauriSettings.getAutoEjectMinutes()).toBe(15);
     },
   );
+});
+
+describe("web search settings", () => {
+  it("defaults to a disabled DuckDuckGo search on desktop", async () => {
+    vi.mocked(invoke).mockResolvedValue({});
+    expect(await tauriSettings.getWebSearchSettings()).toEqual(DEFAULT_WEB_SEARCH_SETTINGS);
+    expect(DEFAULT_WEB_SEARCH_SETTINGS).toMatchObject({
+      webSearchEnabled: false,
+      webSearchProvider: "duckduckgo",
+      webSearchMaxResults: 3,
+      webSearchContentMode: "snippet",
+      webSearchContentMaxChars: 20_000,
+      webSearchContentTruncate: true,
+    });
+  });
+
+  it("loads every stored key", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      webSearchEnabled: true,
+      webSearchProvider: "searxng",
+      webSearchApiKey: "key",
+      webSearchSearxngUrl: "https://searx.internal",
+      webSearchMaxResults: 7,
+      webSearchContentMode: "full",
+      webSearchContentMaxChars: 500,
+      webSearchContentTruncate: false,
+    });
+    expect(await tauriSettings.getWebSearchSettings()).toEqual({
+      webSearchEnabled: true,
+      webSearchProvider: "searxng",
+      webSearchApiKey: "key",
+      webSearchSearxngUrl: "https://searx.internal",
+      webSearchMaxResults: 7,
+      webSearchContentMode: "full",
+      webSearchContentMaxChars: 500,
+      webSearchContentTruncate: false,
+    });
+  });
+
+  it("clamps out-of-range and unknown stored values", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      webSearchProvider: "google",
+      webSearchMaxResults: 99,
+      webSearchContentMode: "everything",
+      webSearchContentMaxChars: 0,
+    });
+    expect(await tauriSettings.getWebSearchSettings()).toMatchObject({
+      webSearchProvider: "duckduckgo",
+      webSearchMaxResults: 10,
+      webSearchContentMode: "snippet",
+      webSearchContentMaxChars: DEFAULT_WEB_SEARCH_SETTINGS.webSearchContentMaxChars,
+      webSearchContentTruncate: true,
+    });
+  });
+
+  it("writes the web search keys through the existing settings patch", async () => {
+    await tauriSettings.setWebSearchSettings({ webSearchProvider: "brave", webSearchApiKey: "secret" });
+    expect(invoke).toHaveBeenLastCalledWith("settings_patch", {
+      patch: { webSearchProvider: "brave", webSearchApiKey: "secret" },
+    });
+  });
+
+  it("runs web_search_test with no arguments", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      ok: true,
+      provider: "duckduckgo",
+      results: [{ title: "a", url: "https://a.test", snippet: "" }],
+    });
+    expect(await tauriSettings.testWebSearch()).toMatchObject({ ok: true, provider: "duckduckgo" });
+    expect(invoke).toHaveBeenLastCalledWith("web_search_test");
+  });
+
+  it("turns a rejected test invoke into a structured failure", async () => {
+    vi.mocked(invoke).mockRejectedValue(new Error("engine offline"));
+    expect(await tauriSettings.testWebSearch()).toEqual({
+      ok: false,
+      error: { code: "request_failed", message: "engine offline", userActionRequired: true },
+    });
+  });
+
+  it("stays inert in the browser and never stores a key in localStorage", async () => {
+    expect(await webSettings.getWebSearchSettings()).toEqual(DEFAULT_WEB_SEARCH_SETTINGS);
+
+    await webSettings.setWebSearchSettings({ webSearchApiKey: "secret", webSearchMaxResults: 5 });
+    expect(localStorage.getItem("mirai.web.settings")).toBeNull();
+    expect(await webSettings.getWebSearchSettings()).toEqual(DEFAULT_WEB_SEARCH_SETTINGS);
+    expect((await webSettings.testWebSearch()).ok).toBe(false);
+  });
 });

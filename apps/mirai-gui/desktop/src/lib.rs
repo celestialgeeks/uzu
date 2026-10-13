@@ -9,6 +9,7 @@ mod models;
 mod storage;
 mod system_ui;
 mod updater;
+mod web;
 
 #[tauri::command]
 fn open_external(url: String) -> bool {
@@ -134,6 +135,7 @@ pub fn run() {
             logger::get_log_file_path,
             storage::settings_load,
             storage::settings_patch,
+            web::tools::web_search_test,
             storage::model_params_set,
             storage::cleanup::cleanup_preview,
             storage::cleanup::cleanup_execute,

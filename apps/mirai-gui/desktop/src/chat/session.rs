@@ -50,15 +50,21 @@ pub(super) async fn ensure_session(
     model_chat_naming_enabled: Option<bool>,
     date_time_tool_enabled: Option<bool>,
     chart_tool_enabled: Option<bool>,
+    web_search_tool_enabled: Option<bool>,
 ) -> AppResult<(ChatSession, ReasoningSupport, Option<ChatNaming>)> {
     let model = find_chat_model(repo_id).await?;
     let model_size = model.properties.as_ref().map(|properties| properties.size);
-    let model_chat_naming_enabled = chat_naming_enabled(
-        resolve_tool_enabled(model_chat_naming_enabled, model_size),
-        &crate::storage::settings_load()?,
-    );
+    let settings = crate::storage::settings_load()?;
+    let model_chat_naming_enabled =
+        chat_naming_enabled(resolve_tool_enabled(model_chat_naming_enabled, model_size), &settings);
     let date_time_tool_enabled = resolve_tool_enabled(date_time_tool_enabled, model_size);
     let chart_tool_enabled = resolve_tool_enabled(chart_tool_enabled, model_size);
+    // The web tools reach outside the machine, so two more gates apply on top of the
+    // per-model choice: the global Settings switch, and whether the configured provider
+    // can actually run. A provider with no key yet must not offer a tool that always fails.
+    let web_search_tool_enabled = global_tool_switch(&settings, "webSearchEnabled")
+        && crate::web::config_from_settings(&settings).is_ready()
+        && resolve_tool_enabled(web_search_tool_enabled, model_size);
     let engine = engine().await?;
     if model.is_downloadable()
         && !matches!(engine.ready_download_state(&model).await?.phase, uzu::storage::DownloadPhase::Downloaded {})
@@ -72,6 +78,7 @@ pub(super) async fn ensure_session(
         if resident.model_chat_naming_enabled == model_chat_naming_enabled
             && resident.date_time_tool_enabled == date_time_tool_enabled
             && resident.chart_tool_enabled == chart_tool_enabled
+            && resident.web_search_tool_enabled == web_search_tool_enabled
         {
             return Ok((resident.session.clone(), resident.support.clone(), resident.naming.clone()));
         }
@@ -86,6 +93,7 @@ pub(super) async fn ensure_session(
             model_chat_naming_enabled,
             date_time_tool_enabled,
             chart_tool_enabled,
+            web_search_tool_enabled,
         )
         .await
         {
@@ -102,6 +110,7 @@ pub(super) async fn ensure_session(
             model_chat_naming_enabled,
             date_time_tool_enabled,
             chart_tool_enabled,
+            web_search_tool_enabled,
             ..resident
         });
         return Ok((session, support, naming));
@@ -115,9 +124,15 @@ pub(super) async fn ensure_session(
     let config = ChatConfig::create();
     let loaded = async {
         let instance = engine.chat_instance(model.clone(), config).await?;
-        let (session, naming) =
-            create_session(&engine, &instance, model_chat_naming_enabled, date_time_tool_enabled, chart_tool_enabled)
-                .await?;
+        let (session, naming) = create_session(
+            &engine,
+            &instance,
+            model_chat_naming_enabled,
+            date_time_tool_enabled,
+            chart_tool_enabled,
+            web_search_tool_enabled,
+        )
+        .await?;
         Ok::<_, AppError>((instance, session, naming))
     }
     .await;
@@ -136,6 +151,7 @@ pub(super) async fn ensure_session(
         model_chat_naming_enabled,
         date_time_tool_enabled,
         chart_tool_enabled,
+        web_search_tool_enabled,
         naming: naming.clone(),
         support: support.clone(),
     });
@@ -157,12 +173,22 @@ fn chat_naming_enabled(
     requested && settings.get("modelChatNamingEnabled").and_then(serde_json::Value::as_bool) != Some(false)
 }
 
+/// A global Settings switch that defaults to enabled: only an explicit `false` disables it,
+/// so a settings file written before the feature existed keeps today's behaviour.
+fn global_tool_switch(
+    settings: &serde_json::Value,
+    key: &str,
+) -> bool {
+    settings.get(key).and_then(serde_json::Value::as_bool) != Some(false)
+}
+
 async fn create_session(
     engine: &Engine,
     instance: &ChatInstance,
     model_chat_naming_enabled: bool,
     date_time_tool_enabled: bool,
     chart_tool_enabled: bool,
+    web_search_tool_enabled: bool,
 ) -> AppResult<(ChatSession, Option<ChatNaming>)> {
     let mut session = engine.chat_with_instance(instance).await?;
     let supports_tools = session.supports_tool_calls().await;
@@ -171,6 +197,13 @@ async fn create_session(
     }
     if chart_tool_enabled && supports_tools {
         session.add_tool(show_chart).await?;
+    }
+    if web_search_tool_enabled && supports_tools {
+        // Registered as a pair: a model offered `web_search` but not `fetch_url` answers
+        // from snippets alone, which is the half of the feature that actually grounds it.
+        for tool in crate::web::tools::descriptors() {
+            session.add_tool(tool).await?;
+        }
     }
     let naming = if model_chat_naming_enabled && supports_tools {
         let naming = ChatNaming::default();
@@ -244,5 +277,25 @@ mod tests {
         assert!(utc.timestamp() >= before.timestamp() && utc.timestamp() <= after.timestamp());
         assert_eq!(utc.offset().local_minus_utc(), 0);
         assert_eq!(local.offset(), local.with_timezone(&chrono::Local).offset());
+    }
+
+    #[test]
+    fn web_search_requires_the_global_switch_a_usable_provider_and_the_model_floor() {
+        let blank = serde_json::json!({});
+        let switched_off = serde_json::json!({ "webSearchEnabled": false });
+        let provider_without_key = serde_json::json!({ "webSearchProvider": "brave" });
+        let provider_with_key = serde_json::json!({ "webSearchProvider": "brave", "webSearchApiKey": "token" });
+
+        // A fresh install is keyless DuckDuckGo, so search works before any configuration.
+        assert!(global_tool_switch(&blank, "webSearchEnabled"));
+        assert!(crate::web::config_from_settings(&blank).is_ready());
+        // An explicit global off switch is honoured, and a provider with no credential yet
+        // must not be offered at all: the model would only learn by failing mid-answer.
+        assert!(!global_tool_switch(&switched_off, "webSearchEnabled"));
+        assert!(!crate::web::config_from_settings(&provider_without_key).is_ready());
+        assert!(crate::web::config_from_settings(&provider_with_key).is_ready());
+        // Only an explicit false disables it, matching the naming switch's leniency.
+        assert!(global_tool_switch(&serde_json::json!({ "webSearchEnabled": "yes" }), "webSearchEnabled"));
+        assert!(!resolve_tool_enabled(None, Some(1_000_000_000)), "sub-2B models stay tool-free");
     }
 }

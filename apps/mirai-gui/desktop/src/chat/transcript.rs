@@ -1,13 +1,17 @@
 use uzu::types::{
-    basic::ToolCall,
+    basic::{ToolCall, Value},
     session::chat::{ChatContentBlock, ChatMessage, ChatReply, ChatReplyFinishReason, ChatRole},
 };
 
 use super::{
     chart::ChartSpec,
     messages::sanitize,
-    payloads::{RunEvent, TranscriptItem},
+    payloads::{RunEvent, SearchSource, TranscriptItem},
 };
+
+/// Sources shown per search card. The model still receives every result; this
+/// only bounds what the transcript renders.
+const MAX_TRANSCRIPT_SOURCES: usize = 8;
 
 /// Only this run's messages: replayed history belongs to earlier UI messages.
 /// Result events arrive before the next prefill, so completion never waits for
@@ -192,21 +196,49 @@ impl Transcript {
                         if let Some(index) = item_index {
                             let result = serde_json::from_str::<serde_json::Value>(&value.json).ok();
                             let failed = result.as_ref().is_some_and(|value| value.get("error").is_some());
-                            let chart = if call.name == "show_chart" && !failed {
-                                result
-                                    .and_then(|value| serde_json::from_value::<ChartSpec>(value).ok())
-                                    .filter(|chart| chart.validate().is_ok())
-                            } else {
-                                None
-                            };
-                            items[index] = match chart {
-                                Some(chart) => TranscriptItem::Chart {
-                                    chart,
+                            items[index] = match call.name.as_str() {
+                                // Web tools render their own cards so the model's raw JSON
+                                // never becomes the visible answer. A result that cannot be
+                                // read at all is a failure, not an empty source list.
+                                "web_search" => TranscriptItem::Search {
+                                    query: argument_text(&call.arguments, "query"),
+                                    results: search_sources(result.as_ref()),
+                                    failed: failed || result.is_none(),
                                 },
-                                None => TranscriptItem::ToolCall {
-                                    name: call.name.clone(),
-                                    called: true,
-                                    failed: failed || call.name == "show_chart",
+                                "fetch_url" => TranscriptItem::Fetch {
+                                    url: result
+                                        .as_ref()
+                                        .and_then(|value| value.get("url"))
+                                        .and_then(serde_json::Value::as_str)
+                                        .filter(|url| is_linkable(url))
+                                        .map(str::to_string)
+                                        .unwrap_or_else(|| argument_text(&call.arguments, "url")),
+                                    truncated: result
+                                        .as_ref()
+                                        .and_then(|value| value.get("truncated"))
+                                        .and_then(serde_json::Value::as_bool)
+                                        .unwrap_or(false),
+                                    failed: failed || result.is_none(),
+                                },
+                                name => {
+                                    let chart = if name == "show_chart" && !failed {
+                                        result
+                                            .as_ref()
+                                            .and_then(|value| serde_json::from_value::<ChartSpec>(value.clone()).ok())
+                                            .filter(|chart| chart.validate().is_ok())
+                                    } else {
+                                        None
+                                    };
+                                    match chart {
+                                        Some(chart) => TranscriptItem::Chart {
+                                            chart,
+                                        },
+                                        None => TranscriptItem::ToolCall {
+                                            name: call.name.clone(),
+                                            called: true,
+                                            failed: failed || name == "show_chart",
+                                        },
+                                    }
                                 },
                             };
                         }
@@ -318,6 +350,57 @@ fn hidden_call(call: &ToolCall) -> bool {
         Some(serde_json::Value::String(value)) => value.trim().eq_ignore_ascii_case("true"),
         _ => false,
     }
+}
+
+/// Read a string argument off a tool call for display purposes.
+///
+/// Markup-based chat templates hand arguments over as JSON-encoded scalars, so a
+/// quoted value is decoded once before use. Anything unreadable becomes empty
+/// text rather than a broken card: this is a presentation path, and the model
+/// still has the real result.
+fn argument_text(
+    arguments: &Value,
+    key: &str,
+) -> String {
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&arguments.json) else {
+        return String::new();
+    };
+    let Some(value) = parsed.get(key) else {
+        return String::new();
+    };
+    match value {
+        serde_json::Value::String(text) => serde_json::from_str::<String>(text).unwrap_or_else(|_| text.clone()),
+        other => other.to_string(),
+    }
+}
+
+/// Only web links may become clickable sources in the transcript. The web layer
+/// already filters these, and the client checks again, so this is one of three
+/// independent gates in front of an `onclick`.
+fn is_linkable(url: &str) -> bool {
+    url.starts_with("http://") || url.starts_with("https://")
+}
+
+fn search_sources(result: Option<&serde_json::Value>) -> Vec<SearchSource> {
+    let Some(rows) = result.and_then(|value| value.get("results")).and_then(serde_json::Value::as_array) else {
+        return Vec::new();
+    };
+    rows.iter()
+        .filter_map(|row| {
+            let url = row.get("url").and_then(serde_json::Value::as_str).filter(|url| is_linkable(url))?;
+            let title = row
+                .get("title")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|title| !title.is_empty())
+                .unwrap_or(url);
+            Some(SearchSource {
+                title: title.chars().take(200).collect(),
+                url: url.to_string(),
+            })
+        })
+        .take(MAX_TRANSCRIPT_SOURCES)
+        .collect()
 }
 
 #[cfg(test)]

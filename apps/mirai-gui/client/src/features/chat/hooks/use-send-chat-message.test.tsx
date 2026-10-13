@@ -462,6 +462,7 @@ it.each([false, true])("sends a small model with tools enabled only after opt-in
           modelChatNamingEnabled: true,
           dateTimeToolEnabled: true,
           chartToolEnabled: true,
+          webSearchToolEnabled: true,
         },
       },
     });
@@ -472,6 +473,7 @@ it.each([false, true])("sends a small model with tools enabled only after opt-in
       modelChatNamingEnabled: enabled,
       dateTimeToolEnabled: enabled,
       chartToolEnabled: enabled,
+      webSearchToolEnabled: enabled,
     }),
   );
 });

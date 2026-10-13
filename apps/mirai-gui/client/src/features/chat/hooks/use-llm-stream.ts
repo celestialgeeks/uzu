@@ -20,6 +20,7 @@ export type StartStreamOptions = {
   modelChatNamingEnabled?: boolean;
   dateTimeToolEnabled?: boolean;
   chartToolEnabled?: boolean;
+  webSearchToolEnabled?: boolean;
   signal?: AbortSignal;
   messageId: string;
   chatId: string;
@@ -154,6 +155,7 @@ export const useLlmStream = (chatId: string) => {
         modelChatNamingEnabled,
         dateTimeToolEnabled: options.dateTimeToolEnabled,
         chartToolEnabled: options.chartToolEnabled,
+        webSearchToolEnabled: options.webSearchToolEnabled,
       });
       const runId = llm.runId;
       const reader = llm.stream.getReader();

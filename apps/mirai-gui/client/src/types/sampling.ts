@@ -43,4 +43,5 @@ export type ModelParams = {
   modelChatNamingEnabled?: boolean;
   dateTimeToolEnabled?: boolean;
   chartToolEnabled?: boolean;
+  webSearchToolEnabled?: boolean;
 };

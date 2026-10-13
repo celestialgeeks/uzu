@@ -314,6 +314,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       modelChatNamingEnabled: tools.modelChatNamingEnabled && params.modelChatNamingEnabled !== false,
       dateTimeToolEnabled: params.dateTimeToolEnabled ?? tools.dateTimeToolEnabled,
       chartToolEnabled: params.chartToolEnabled ?? tools.chartToolEnabled,
+      webSearchToolEnabled: params.webSearchToolEnabled ?? tools.webSearchToolEnabled,
       samplingPolicy: modelParams.sampling,
       reasoningEffort: modelParams.reasoningEffort ?? "default",
     });

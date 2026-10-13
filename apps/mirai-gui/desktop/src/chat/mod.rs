@@ -49,6 +49,7 @@ struct ResidentSession {
     model_chat_naming_enabled: bool,
     date_time_tool_enabled: bool,
     chart_tool_enabled: bool,
+    web_search_tool_enabled: bool,
     naming: Option<naming::ChatNaming>,
     support: ReasoningSupport,
 }
