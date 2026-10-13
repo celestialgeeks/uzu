@@ -3,13 +3,16 @@ use crate::backends::common::Backend;
 mod fallback;
 mod gemm;
 mod gemm_grouped;
+mod int8;
 mod single_pass;
 mod two_pass;
 
 use crate::backends::{
     common::{
         BufferRef, CommandBufferEncoding,
-        kernel::{AttentionArguments, AttentionKernel, AttentionKernelConfig, SigmoidGateKernel},
+        kernel::{
+            AttentionArguments, AttentionKernel, AttentionKernelConfig, Int8AttentionArguments, SigmoidGateKernel,
+        },
     },
     metal::{
         Metal, command_buffer::MetalCommandBufferEncoding, context::MetalContext, error::MetalError,
@@ -54,6 +57,7 @@ pub struct AttentionMetalKernel {
     config: AttentionKernelConfig,
     gate: Option<(SigmoidGateMetalKernel, u32)>,
     grouped: Option<gemm_grouped::AttentionGemmGrouped>,
+    int8: Option<int8::Int8Attention>,
     gemm: Option<gemm::AttentionGemm>,
     fallback: Option<fallback::AttentionFallback>,
     two_pass: two_pass::AttentionTwoPass,
@@ -69,6 +73,9 @@ impl AttentionKernel for AttentionMetalKernel {
     ) -> Result<Self, MetalError> {
         let grouped = gemm_grouped::AttentionGemmGrouped::is_supported(&config, context)
             .then(|| gemm_grouped::AttentionGemmGrouped::new(&config));
+        let int8 = int8::Int8Attention::is_supported(&config, context)
+            .then(|| int8::Int8Attention::new(context, &config))
+            .transpose()?;
         let gemm = gemm::AttentionGemm::is_supported(&config).then(|| gemm::AttentionGemm::new(&config));
         let fallback = fallback::AttentionFallback::is_supported(&config)
             .then(|| fallback::AttentionFallback::new(&config, context))
@@ -81,11 +88,32 @@ impl AttentionKernel for AttentionMetalKernel {
             config,
             gate,
             grouped,
+            int8,
             gemm,
             fallback,
             two_pass: two_pass::AttentionTwoPass::new(&config),
             single_pass: single_pass::AttentionSinglePass::new(&config),
         })
+    }
+
+    fn supports_int8_kv(&self) -> bool {
+        self.int8.is_some()
+    }
+
+    fn encode_int8(
+        &self,
+        arguments: Int8AttentionArguments<
+            '_,
+            Metal,
+            impl BufferRef<Backend = Metal>,
+            impl BufferRef<Backend = Metal>,
+            impl BufferRef<Backend = Metal>,
+            impl BufferRef<Backend = Metal>,
+        >,
+        command_buffer: &mut MetalCommandBufferEncoding,
+    ) -> Result<<Metal as Backend>::ScratchBuffer, MetalError> {
+        let command_buffer = &mut *command_buffer.debug_group("attention core");
+        self.int8.as_ref().expect("INT8 KV unsupported for this attention config").encode(arguments, command_buffer)
     }
 
     fn encode(

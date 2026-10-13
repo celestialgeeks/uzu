@@ -13,7 +13,7 @@ pub mod radix_top_k_small;
 mod trellis;
 
 pub use activation_transform::{ActivationQuantization, ActivationTransform};
-pub use attention::{AttentionArguments, AttentionKernel, AttentionKernelConfig};
+pub use attention::{AttentionArguments, AttentionKernel, AttentionKernelConfig, Int8AttentionArguments, KVFormat};
 pub use gated_act_mul::{GatedActMul, GatedActMulSettings};
 pub use trellis::mixing_dimension;
 
