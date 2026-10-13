@@ -1152,4 +1152,45 @@ mod tests {
             assert_eq!(error.code, ErrorCode::InvalidArguments, "{url:?}");
         }
     }
+
+    // --------------------------------------------------------------------------------
+    // Live checks (opt-in: `cargo test -- --ignored --nocapture`). CI stays offline.
+    // --------------------------------------------------------------------------------
+
+    /// Fetch a real page and prove the extractor yields readable text, not markup.
+    #[tokio::test]
+    #[ignore = "makes a live network request"]
+    async fn live_fetch_returns_readable_text() {
+        let response = run_fetch_url(&WebConfig::default(), "https://example.com/").await;
+        if !response.ok {
+            panic!("fetch failed: {:?}", response.error.map(|error| (error.code, error.message)));
+        }
+        let content = response.content.expect("a successful fetch carries content");
+        println!("--- extracted from example.com ---\n{content}\n---");
+        // Asserted on shape rather than wording: this page's prose has changed before,
+        // and a copy edit is not a regression in the extractor.
+        assert!(content.chars().count() > 40, "the page body was lost: {content:?}");
+        assert!(!content.contains('<'), "raw markup leaked: {content}");
+        assert_eq!(response.truncated, Some(false), "a one-screen page must not report truncation");
+        assert_eq!(response.url.as_deref(), Some("https://example.com/"), "the final URL must be reported back");
+    }
+
+    /// The guard has to refuse local targets even when something is listening there.
+    #[tokio::test]
+    #[ignore = "resolves hostnames and probes loopback ports"]
+    async fn live_guard_refuses_private_addresses() {
+        for url in [
+            "http://127.0.0.1:8080/",
+            "http://localhost:5432/",
+            "http://[::1]:3000/",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://10.0.0.1/admin",
+        ] {
+            let response = run_fetch_url(&WebConfig::default(), url).await;
+            assert!(!response.ok, "{url} must never be fetched");
+            let error = response.error.expect("a refusal carries an error");
+            assert_eq!(error.code, ErrorCode::InvalidArguments, "{url}");
+            assert!(error.message.to_ascii_lowercase().contains("private or local"), "{url}: {}", error.message);
+        }
+    }
 }

@@ -821,4 +821,129 @@ mod tests {
             assert_eq!(ProviderKind::from_setting(&kind.as_str().to_uppercase()), kind);
         }
     }
+
+    // --------------------------------------------------------------------------------
+    // Live provider checks (opt-in: `cargo test -- --ignored --nocapture`)
+    // --------------------------------------------------------------------------------
+    //
+    // A fixture proves the parser agrees with itself, not that the endpoint still
+    // answers in that shape. DuckDuckGo's HTML classes have changed before. These are
+    // `#[ignore]`d so CI stays offline, and are meant to be run by hand when a provider
+    // is suspected of drifting.
+
+    /// Keyless default provider, end to end: request, parse, sanitize.
+    #[tokio::test]
+    #[ignore = "makes a live network request"]
+    async fn live_duckduckgo_answers_with_readable_results() {
+        report_live("duckduckgo", &WebConfig::default()).await;
+    }
+
+    /// Keyed providers run only when their credential is in the environment, so this
+    /// stays green on a machine that has none.
+    #[tokio::test]
+    #[ignore = "makes a live network request"]
+    async fn live_keyed_providers_answer_when_configured() {
+        for (kind, variable) in [
+            (ProviderKind::Brave, "BRAVE_API_KEY"),
+            (ProviderKind::Tavily, "TAVILY_API_KEY"),
+            (ProviderKind::Searxng, "SEARXNG_URL"),
+        ] {
+            let value = std::env::var(variable).unwrap_or_default();
+            if value.trim().is_empty() {
+                println!("skipping {}: set {variable} to check it", kind.as_str());
+                continue;
+            }
+            let config = WebConfig {
+                provider: kind,
+                api_key: if kind == ProviderKind::Searxng {
+                    String::new()
+                } else {
+                    value.clone()
+                },
+                base_url: if kind == ProviderKind::Searxng {
+                    value
+                } else {
+                    String::new()
+                },
+                ..WebConfig::default()
+            };
+            report_live(kind.as_str(), &config).await;
+        }
+    }
+
+    /// Full-content mode is the expensive path: search, then fetch every result page.
+    /// One live run proves the enrichment wiring and that a failed page never sinks
+    /// the search around it.
+    #[tokio::test]
+    #[ignore = "makes several live network requests"]
+    async fn live_full_content_mode_inlines_page_text() {
+        let config = WebConfig {
+            content_mode: crate::web::types::ContentMode::Full,
+            max_results: 2,
+            content_max_chars: 1_200,
+            ..WebConfig::default()
+        };
+        let response = crate::web::search::run_web_search(&config, "rust 1.99 release notes").await;
+        assert!(response.ok, "full-content search failed: {:?}", response.error.map(|error| error.message));
+        for result in &response.results {
+            println!(
+                "{}: content={} chars, error={:?}",
+                result.url,
+                result.content.as_deref().unwrap_or("").chars().count(),
+                result.content_error
+            );
+        }
+        assert_eq!(response.results.len(), 2, "the configured result count must be honoured");
+        assert!(
+            response
+                .results
+                .iter()
+                .any(|result| result.content.as_deref().is_some_and(|text| text.chars().count() > 40)),
+            "no page text was inlined: {:?}",
+            response.results.iter().map(|result| (&result.url, &result.content_error)).collect::<Vec<_>>()
+        );
+        assert!(
+            response
+                .results
+                .iter()
+                .all(|result| result.content.as_deref().is_none_or(|text| text.chars().count() <= 1_200)),
+            "the content ceiling was not applied"
+        );
+    }
+
+    async fn report_live(
+        name: &str,
+        config: &WebConfig,
+    ) {
+        let response = crate::web::search::run_web_search(config, "latest stable rust release").await;
+        if !response.ok {
+            let error = response.error.unwrap_or_else(|| {
+                crate::web::types::WebError::new(
+                    ErrorCode::UnexpectedFailure,
+                    "no error field on a failed response",
+                    false,
+                )
+            });
+            panic!("{name} failed: {:?} — {}", error.code, error.message);
+        }
+        println!("{name}: provider={:?} results={}", response.provider, response.results.len());
+        for result in &response.results {
+            println!("  {} | {}", result.title, result.url);
+            println!("    {}", result.snippet.chars().take(120).collect::<String>());
+        }
+        assert!(!response.results.is_empty(), "{name} returned ok with zero results for a query that must match");
+        for result in &response.results {
+            assert!(
+                result.url.starts_with("http://") || result.url.starts_with("https://"),
+                "{name} leaked {}",
+                result.url
+            );
+            assert!(
+                !result.url.contains("duckduckgo.com/l?") && !result.url.contains("uddg="),
+                "wrapper link survived: {}",
+                result.url
+            );
+            assert!(!result.title.trim().is_empty(), "{name} returned an untitled, unhosted row");
+        }
+    }
 }
