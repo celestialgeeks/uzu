@@ -9,6 +9,7 @@
 //   k_scales bf16   [kv head][key]                                                 stride = padded capacity
 //   v_scales bf16   [kv head][key]                                                 stride = padded capacity
 // clang-format on
+// The planes start zeroed and writers store a scale > 0, so a scale <= 0 marks a slot never written.
 
 namespace uzu::kv_layout {
 
